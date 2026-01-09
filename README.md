@@ -32,12 +32,6 @@ Better Auth adapter and plugins for Payload CMS. Enables seamless integration be
 pnpm add @delmaredigital/payload-better-auth better-auth
 ```
 
-Or install from GitHub:
-
-```bash
-pnpm add github:delmaredigital/payload-better-auth
-```
-
 ---
 
 ## Quick Start
