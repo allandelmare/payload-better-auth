@@ -9,7 +9,7 @@ Better Auth adapter and plugins for Payload CMS. Enables seamless integration be
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [API Reference](#api-reference)
-- [Admin Panel Integration](#admin-panel-integration)
+- [Customization](#customization)
 - [Plugin Compatibility](#plugin-compatibility)
 - [License](#license)
 
@@ -66,131 +66,94 @@ export const collectionSlugs = {
 } as const
 ```
 
-### Step 2: Create the Auth Instance Factory
-
-```ts
-// src/lib/auth/index.ts
-import { betterAuth } from 'better-auth'
-import type { BasePayload } from 'payload'
-import { payloadAdapter } from '@delmaredigital/payload-better-auth'
-import { betterAuthOptions, collectionSlugs } from './config'
-
-export function createAuth(payload: BasePayload) {
-  return betterAuth({
-    ...betterAuthOptions,
-    database: payloadAdapter({
-      payloadClient: payload,
-      adapterConfig: {
-        collections: collectionSlugs,
-        enableDebugLogs: process.env.NODE_ENV === 'development',
-        idType: 'number', // Use Payload's default SERIAL IDs
-      },
-    }),
-    // Use serial/integer IDs (Payload default) instead of UUID
-    advanced: {
-      database: {
-        generateId: 'serial',
-      },
-    },
-    secret: process.env.BETTER_AUTH_SECRET,
-    trustedOrigins: [process.env.NEXT_PUBLIC_APP_URL || ''],
-  })
-}
-```
-
-### Step 3: Configure Payload
+### Step 2: Configure Payload
 
 ```ts
 // src/payload.config.ts
 import { buildConfig } from 'payload'
+import { betterAuth } from 'better-auth'
 import {
   betterAuthCollections,
   createBetterAuthPlugin,
+  betterAuthStrategy,
+  payloadAdapter,
 } from '@delmaredigital/payload-better-auth'
-import { betterAuthOptions } from './lib/auth/config'
-import { createAuth } from './lib/auth'
-import { Users } from './collections/Users'
+import { betterAuthOptions, collectionSlugs } from './lib/auth/config'
 
 export default buildConfig({
-  collections: [Users /* ... other collections */],
+  collections: [
+    // Your Users collection with Better Auth strategy
+    {
+      slug: 'users',
+      auth: {
+        disableLocalStrategy: true,
+        strategies: [betterAuthStrategy()],
+      },
+      access: {
+        read: ({ req }) => {
+          if (!req.user) return false
+          if (req.user.role === 'admin') return true
+          return { id: { equals: req.user.id } }
+        },
+        admin: ({ req }) => req.user?.role === 'admin',
+      },
+      fields: [
+        { name: 'email', type: 'email', required: true, unique: true },
+        { name: 'emailVerified', type: 'checkbox', defaultValue: false },
+        { name: 'name', type: 'text' },
+        { name: 'image', type: 'text' },
+        {
+          name: 'role',
+          type: 'select',
+          defaultValue: 'user',
+          options: [
+            { label: 'User', value: 'user' },
+            { label: 'Admin', value: 'admin' },
+          ],
+        },
+      ],
+    },
+    // ... other collections
+  ],
   plugins: [
     // Auto-generate sessions, accounts, verifications collections
     betterAuthCollections({
       betterAuthOptions,
       skipCollections: ['user'], // We define Users ourselves
     }),
-    // Initialize Better Auth in Payload's lifecycle
+    // Initialize Better Auth with auto-injected endpoints and admin components
     createBetterAuthPlugin({
-      createAuth,
+      createAuth: (payload) =>
+        betterAuth({
+          ...betterAuthOptions,
+          database: payloadAdapter({
+            payloadClient: payload,
+            adapterConfig: {
+              collections: collectionSlugs,
+              enableDebugLogs: process.env.NODE_ENV === 'development',
+              idType: 'number', // Use Payload's default SERIAL IDs
+            },
+          }),
+          advanced: {
+            database: {
+              generateId: 'serial',
+            },
+          },
+          secret: process.env.BETTER_AUTH_SECRET,
+          trustedOrigins: [process.env.NEXT_PUBLIC_APP_URL || ''],
+        }),
     }),
   ],
+  admin: {
+    user: 'users',
+  },
   db: postgresAdapter({
     pool: { connectionString: process.env.DATABASE_URL },
-    // Use Payload defaults - Better Auth adapter handles ID conversion
   }),
 })
 ```
 
-### Step 4: Create Your Users Collection
-
-```ts
-// src/collections/Users.ts
-import type { CollectionConfig } from 'payload'
-import { betterAuthStrategy } from '@delmaredigital/payload-better-auth'
-
-export const Users: CollectionConfig = {
-  slug: 'users',
-  auth: {
-    disableLocalStrategy: true,
-    strategies: [betterAuthStrategy()],
-  },
-  access: {
-    read: ({ req }) => {
-      if (!req.user) return false
-      if (req.user.role === 'admin') return true
-      return { id: { equals: req.user.id } }
-    },
-    admin: ({ req }) => req.user?.role === 'admin',
-  },
-  fields: [
-    { name: 'email', type: 'email', required: true, unique: true },
-    { name: 'emailVerified', type: 'checkbox', defaultValue: false },
-    { name: 'name', type: 'text' },
-    { name: 'image', type: 'text' },
-    {
-      name: 'role',
-      type: 'select',
-      defaultValue: 'user',
-      options: [
-        { label: 'User', value: 'user' },
-        { label: 'Admin', value: 'admin' },
-      ],
-    },
-  ],
-}
-```
-
-### Step 5: Create the Auth API Route
-
-```ts
-// src/app/api/auth/[...all]/route.ts
-import { getPayload } from 'payload'
-import config from '@payload-config'
-import type { NextRequest } from 'next/server'
-import type { PayloadWithAuth } from '@delmaredigital/payload-better-auth'
-
-export async function GET(request: NextRequest) {
-  const payload = (await getPayload({ config })) as PayloadWithAuth
-  return payload.betterAuth.handler(request)
-}
-
-export async function POST(request: NextRequest) {
-  const payload = (await getPayload({ config })) as PayloadWithAuth
-  return payload.betterAuth.handler(request)
-}
-```
-
-### Step 6: Client-Side Auth
+### Step 3: Client-Side Auth
 
 ```ts
 // src/lib/auth/client.ts
@@ -208,7 +171,7 @@ export const authClient = createAuthClient({
 export const { useSession, signIn, signUp, signOut } = authClient
 ```
 
-### Step 7: Server-Side Session Access
+### Step 4: Server-Side Session Access
 
 ```ts
 // In a server component or API route
@@ -228,6 +191,11 @@ export default async function Dashboard() {
   return <div>Hello {session.user.name}</div>
 }
 ```
+
+**That's it!** The plugin automatically:
+- Registers auth API endpoints at `/api/auth/*`
+- Injects logout button, login redirect, and login page components
+- Handles session management via Better Auth
 
 ---
 
@@ -287,12 +255,30 @@ Payload plugin that initializes Better Auth during Payload's `onInit`.
 ```ts
 createBetterAuthPlugin({
   createAuth: (payload) => betterAuth({ ... }),
+  authBasePath: '/auth',
+  autoRegisterEndpoints: true,
+  autoInjectAdminComponents: true,
+  admin: {
+    login: { title: 'Admin Login' },
+  },
 })
 ```
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `createAuth` | `(payload: BasePayload) => Auth` | Factory function that creates the Better Auth instance |
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `createAuth` | `(payload: BasePayload) => Auth` | *required* | Factory function that creates the Better Auth instance |
+| `authBasePath` | `string` | `'/auth'` | Base path for auth API endpoints |
+| `autoRegisterEndpoints` | `boolean` | `true` | Auto-register auth API endpoints |
+| `autoInjectAdminComponents` | `boolean` | `true` | Auto-inject admin components when `disableLocalStrategy` detected |
+| `admin.disableLogoutButton` | `boolean` | `false` | Disable logout button injection |
+| `admin.disableBeforeLogin` | `boolean` | `false` | Disable BeforeLogin redirect injection |
+| `admin.disableLoginView` | `boolean` | `false` | Disable login view injection |
+| `admin.login.title` | `string` | `'Login'` | Custom login page title |
+| `admin.login.afterLoginPath` | `string` | `'/admin'` | Redirect path after successful login |
+| `admin.login.requiredRole` | `string \| null` | `'admin'` | Required role for admin access. Set to `null` to disable role checking. |
+| `admin.logoutButtonComponent` | `string` | - | Override logout button (import map format) |
+| `admin.beforeLoginComponent` | `string` | - | Override BeforeLogin component |
+| `admin.loginViewComponent` | `string` | - | Override login view component |
 
 ### `betterAuthStrategy(options?)`
 
@@ -328,189 +314,111 @@ const user = await getServerUser(payload, headersList)
 
 ---
 
-## Admin Panel Integration
+## Customization
 
-When using `disableLocalStrategy: true` in your Users collection, you need custom admin authentication components since Payload's default login form won't work.
+### Role-Based Access Control
 
-### Why Custom Components Are Needed
-
-With `disableLocalStrategy: true`:
-- Payload's default login form is disabled
-- Users must authenticate via Better Auth
-- A custom login page is needed at `/admin/login`
-- A custom logout button is needed to clear Better Auth sessions
-
-<details>
-<summary><strong>Step 1: Create BeforeLogin Component</strong></summary>
-
-This component redirects unauthenticated users from Payload's login to your custom login page:
-
-```tsx
-// src/components/admin/BeforeLogin.tsx
-'use client'
-
-import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-
-export default function BeforeLogin() {
-  const router = useRouter()
-
-  useEffect(() => {
-    router.replace('/admin/login')
-  }, [router])
-
-  return (
-    <div style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center' }}>
-      <div>Redirecting to login...</div>
-    </div>
-  )
-}
-```
-</details>
-
-<details>
-<summary><strong>Step 2: Create Custom Logout Button</strong></summary>
-
-**IMPORTANT**: The logout button must only trigger logout **on click**, not on mount. Triggering logout on mount would cause an infinite redirect loop since this component is rendered in the admin panel header.
-
-```tsx
-// src/components/admin/Logout.tsx
-'use client'
-
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { signOut } from '@/lib/auth/client'
-
-export default function Logout() {
-  const router = useRouter()
-  const [isLoading, setIsLoading] = useState(false)
-
-  async function handleLogout() {
-    if (isLoading) return
-    setIsLoading(true)
-
-    try {
-      await signOut()
-      router.push('/admin/login')
-    } catch (error) {
-      console.error('Logout error:', error)
-      setIsLoading(false)
-    }
-  }
-
-  return (
-    <button
-      onClick={handleLogout}
-      disabled={isLoading}
-      type="button"
-      className="btn btn--style-secondary btn--icon-style-without-border btn--size-small btn--withoutPopup"
-    >
-      {isLoading ? 'Logging out...' : 'Log out'}
-    </button>
-  )
-}
-```
-</details>
-
-<details>
-<summary><strong>Step 3: Create Admin Login Page</strong></summary>
-
-```tsx
-// src/app/(frontend)/admin/login/page.tsx
-'use client'
-
-import { useEffect, useState, type FormEvent } from 'react'
-import { useRouter } from 'next/navigation'
-import { useSession, signIn } from '@/lib/auth/client'
-
-export default function AdminLoginPage() {
-  const { data: session, isPending } = useSession()
-  const router = useRouter()
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-
-  useEffect(() => {
-    if (session?.user) {
-      const user = session.user as { role?: string }
-      if (user.role === 'admin') {
-        router.push('/admin')
-      } else {
-        setError('Access denied. Admin role required.')
-      }
-    }
-  }, [session, router])
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault()
-    setError(null)
-    setIsLoading(true)
-
-    try {
-      const result = await signIn.email({ email, password })
-      if (result.error) {
-        setError(result.error.message || 'Invalid credentials')
-        setIsLoading(false)
-        return
-      }
-      router.refresh()
-    } catch {
-      setError('An unexpected error occurred')
-      setIsLoading(false)
-    }
-  }
-
-  if (isPending) {
-    return <div>Loading...</div>
-  }
-
-  return (
-    <form onSubmit={handleSubmit}>
-      <h1>Admin Login</h1>
-      <input
-        type="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        placeholder="Email"
-        required
-      />
-      <input
-        type="password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        placeholder="Password"
-        required
-      />
-      {error && <div style={{ color: 'red' }}>{error}</div>}
-      <button type="submit" disabled={isLoading}>
-        {isLoading ? 'Signing in...' : 'Sign in'}
-      </button>
-    </form>
-  )
-}
-```
-</details>
-
-<details>
-<summary><strong>Step 4: Configure Payload Admin Components</strong></summary>
+By default, the login page checks that users have the `admin` role before allowing access to the admin panel. Users without the required role see an "Access Denied" message.
 
 ```ts
-// payload.config.ts
-export default buildConfig({
+createBetterAuthPlugin({
+  createAuth,
   admin: {
-    user: Users.slug,
-    components: {
-      beforeLogin: ['@/components/admin/BeforeLogin'],
-      logout: {
-        Button: '@/components/admin/Logout',
-      },
+    login: {
+      // Default: 'admin' - only users with role='admin' can access
+      requiredRole: 'admin',
+
+      // Use a different role name
+      requiredRole: 'editor',
+
+      // Disable role checking entirely
+      requiredRole: null,
     },
   },
-  // ... rest of config
 })
 ```
-</details>
+
+**For complex RBAC** (multiple roles, permissions, etc.), disable the login view and create your own:
+
+```ts
+createBetterAuthPlugin({
+  createAuth,
+  admin: {
+    disableLoginView: true,
+    loginViewComponent: '@/components/admin/CustomLoginWithRBAC',
+  },
+})
+```
+
+You can use the built-in `LoginView` as a starting point:
+
+```tsx
+// src/components/admin/CustomLoginWithRBAC.tsx
+'use client'
+
+import { LoginView } from '@delmaredigital/payload-better-auth/components'
+
+// Option 1: Wrap and extend the built-in component
+export default function CustomLoginWithRBAC() {
+  // Add your custom RBAC logic here
+  return <LoginView requiredRole={null} /> // Disable built-in role check
+}
+
+// Option 2: Copy the LoginView source code from the package and customize fully
+// See: node_modules/@delmaredigital/payload-better-auth/dist/components/LoginView.js
+```
+
+### Disabling Auto-Injection
+
+If you prefer to handle API routes or admin components manually:
+
+```ts
+createBetterAuthPlugin({
+  createAuth,
+  autoRegisterEndpoints: false,      // Handle API route yourself
+  autoInjectAdminComponents: false,  // Handle admin components yourself
+})
+```
+
+### Custom Admin Components
+
+Override specific admin components while keeping others auto-injected:
+
+```ts
+createBetterAuthPlugin({
+  createAuth,
+  admin: {
+    // Use custom components (import map format)
+    loginViewComponent: '@/components/admin/CustomLogin',
+    logoutButtonComponent: '@/components/admin/CustomLogout',
+
+    // Or disable specific components
+    disableBeforeLogin: true,
+  },
+})
+```
+
+### Manual API Route (Advanced)
+
+If you disable `autoRegisterEndpoints`, create your own route:
+
+```ts
+// src/app/api/auth/[...all]/route.ts
+import { getPayload } from 'payload'
+import config from '@payload-config'
+import type { NextRequest } from 'next/server'
+import type { PayloadWithAuth } from '@delmaredigital/payload-better-auth'
+
+export async function GET(request: NextRequest) {
+  const payload = (await getPayload({ config })) as PayloadWithAuth
+  return payload.betterAuth.handler(request)
+}
+
+export async function POST(request: NextRequest) {
+  const payload = (await getPayload({ config })) as PayloadWithAuth
+  return payload.betterAuth.handler(request)
+}
+```
 
 ---
 

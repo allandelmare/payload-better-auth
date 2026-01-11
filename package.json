@@ -2,46 +2,47 @@
   "name": "@delmaredigital/payload-better-auth",
   "version": "0.1.5",
   "description": "Better Auth adapter and plugins for Payload CMS",
+  "type": "module",
+  "license": "MIT",
   "main": "./dist/index.js",
-  "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
     },
     "./adapter": {
-      "types": "./dist/adapter/index.d.ts",
-      "import": "./dist/adapter/index.mjs",
-      "require": "./dist/adapter/index.js"
+      "import": "./dist/adapter/index.js",
+      "types": "./dist/adapter/index.d.ts"
     },
     "./plugin": {
-      "types": "./dist/plugin/index.d.ts",
-      "import": "./dist/plugin/index.mjs",
-      "require": "./dist/plugin/index.js"
+      "import": "./dist/plugin/index.js",
+      "types": "./dist/plugin/index.d.ts"
     },
     "./client": {
-      "types": "./dist/client.d.ts",
-      "import": "./dist/client.mjs",
-      "require": "./dist/client.js"
+      "import": "./dist/exports/client.js",
+      "types": "./dist/exports/client.d.ts"
+    },
+    "./components": {
+      "import": "./dist/exports/components.js",
+      "types": "./dist/exports/components.d.ts"
     }
   },
   "files": [
-    "dist",
-    "README.md"
+    "dist"
   ],
   "scripts": {
-    "build": "tsup",
-    "dev": "tsup --watch",
-    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "dev-publish": "pnpm build && pnpm version prerelease --preid=dev && pnpm publish --registry http://localhost:4873",
+    "clean": "rm -rf dist",
     "prepublishOnly": "pnpm build"
   },
   "peerDependencies": {
     "better-auth": ">=1.0.0",
-    "next": ">=15.4.0",
+    "next": ">=14.0.0 || >=15.0.0 || >=16.0.0",
     "payload": ">=3.0.0",
-    "react": ">=18.0.0"
+    "react": ">=18.0.0 || >=19.0.0"
   },
   "devDependencies": {
     "@types/node": "^25.0.3",
@@ -50,7 +51,6 @@
     "next": "^16.1.1",
     "payload": "^3.69.0",
     "react": "^19.2.3",
-    "tsup": "^8.5.1",
     "typescript": "^5.9.3"
   },
   "keywords": [
@@ -65,7 +65,6 @@
     "node": "^18.20.2 || >=20.9.0"
   },
   "author": "Delmare Digital",
-  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/delmaredigital/payload-better-auth.git"
