@@ -1,6 +1,6 @@
 {
   "name": "@delmaredigital/payload-better-auth",
-  "version": "0.2.2",
+  "version": "0.2.3-dev.35",
   "description": "Better Auth adapter and plugins for Payload CMS",
   "type": "module",
   "license": "MIT",
@@ -26,6 +26,26 @@
     "./components": {
       "import": "./dist/exports/components.js",
       "types": "./dist/exports/components.d.ts"
+    },
+    "./components/auth": {
+      "import": "./dist/components/auth/index.js",
+      "types": "./dist/components/auth/index.d.ts"
+    },
+    "./components/twoFactor": {
+      "import": "./dist/components/twoFactor/index.js",
+      "types": "./dist/components/twoFactor/index.d.ts"
+    },
+    "./management": {
+      "import": "./dist/exports/management.js",
+      "types": "./dist/exports/management.d.ts"
+    },
+    "./components/management": {
+      "import": "./dist/components/management/index.js",
+      "types": "./dist/components/management/index.d.ts"
+    },
+    "./rsc": {
+      "import": "./dist/exports/rsc.js",
+      "types": "./dist/exports/rsc.d.ts"
     }
   },
   "files": [
@@ -36,22 +56,36 @@
     "dev": "tsc --watch",
     "dev-publish": "pnpm build && pnpm version prerelease --preid=dev && pnpm publish --registry http://localhost:4873",
     "clean": "rm -rf dist",
+    "generate:types": "tsx src/scripts/generate-types.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "prepublishOnly": "pnpm build"
   },
+  "dependencies": {
+    "@better-auth/passkey": "^1.4.12"
+  },
   "peerDependencies": {
-    "better-auth": ">=1.0.0",
-    "next": ">=14.0.0 || >=15.0.0 || >=16.0.0",
-    "payload": ">=3.0.0",
-    "react": ">=18.0.0 || >=19.0.0"
+    "@payloadcms/next": ">=3.69.0",
+    "@payloadcms/ui": ">=3.69.0",
+    "better-auth": ">=1.4.0",
+    "next": ">=15.4.8",
+    "payload": ">=3.69.0",
+    "react": ">=19.2.1"
   },
   "devDependencies": {
-    "@types/node": "^25.0.3",
-    "@types/react": "^19.2.7",
-    "better-auth": "^1.4.10",
+    "@payloadcms/next": "^3.71.1",
+    "@payloadcms/ui": "^3.71.1",
+    "@types/node": "^25.0.8",
+    "@types/react": "^19.2.8",
+    "@vitest/coverage-v8": "^2.1.9",
+    "better-auth": "^1.4.12",
     "next": "^16.1.1",
-    "payload": "^3.69.0",
+    "payload": "^3.71.1",
     "react": "^19.2.3",
-    "typescript": "^5.9.3"
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
   },
   "keywords": [
     "payload",

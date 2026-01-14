@@ -16,11 +16,6 @@ export type BetterAuthCollectionsOptions = {
   betterAuthOptions?: BetterAuthOptions
 
   /**
-   * Override collection slugs (e.g., { user: 'users', session: 'sessions' })
-   */
-  slugOverrides?: Record<string, string>
-
-  /**
    * Collections to skip (they already exist in your config)
    * Default: ['user'] - assumes you have a Users collection
    */
@@ -37,13 +32,97 @@ export type BetterAuthCollectionsOptions = {
    * By default, only admins can read/delete, and create/update are disabled.
    */
   access?: CollectionConfig['access']
+
+  /**
+   * Whether to pluralize collection slugs (add 's' suffix).
+   * Should match your adapter's usePlural setting.
+   * Default: true (matches Payload conventions)
+   */
+  usePlural?: boolean
+
+  /**
+   * Configure saveToJWT for session-related fields.
+   * This controls which fields are included in JWT tokens.
+   * Default: true
+   */
+  configureSaveToJWT?: boolean
+
+  /**
+   * Customize a generated collection before it's added to config.
+   * Use this to add hooks, modify fields, or adjust any collection setting.
+   *
+   * @example
+   * ```ts
+   * customizeCollection: (modelKey, collection) => {
+   *   if (modelKey === 'session') {
+   *     return {
+   *       ...collection,
+   *       hooks: {
+   *         afterDelete: [myCleanupHook],
+   *       },
+   *     }
+   *   }
+   *   return collection
+   * }
+   * ```
+   */
+  customizeCollection?: (
+    modelKey: string,
+    collection: CollectionConfig
+  ) => CollectionConfig
 }
 
-const DEFAULT_SLUG_OVERRIDES: Record<string, string> = {
-  user: 'users',
-  session: 'sessions',
-  account: 'accounts',
-  verification: 'verifications',
+/**
+ * Determine if a field should be saved to JWT.
+ * Session-critical fields are included, large data fields are excluded.
+ */
+function getSaveToJWT(modelKey: string, fieldName: string): boolean | undefined {
+  // Session fields - include core session data
+  if (modelKey === 'session') {
+    const includeFields = ['token', 'expiresAt', 'user', 'userId', 'ipAddress', 'userAgent', 'activeOrganizationId', 'activeTeamId']
+    const excludeFields = ['createdAt', 'updatedAt']
+
+    if (includeFields.some(f => fieldName === f || fieldName.endsWith(f.charAt(0).toUpperCase() + f.slice(1)))) {
+      return true
+    }
+    if (excludeFields.includes(fieldName)) {
+      return false
+    }
+  }
+
+  // User fields - include essential auth data
+  if (modelKey === 'user') {
+    const includeFields = ['role', 'email', 'emailVerified', 'name', 'twoFactorEnabled', 'banned']
+    const excludeFields = ['image', 'password', 'banReason']
+
+    if (includeFields.includes(fieldName)) {
+      return true
+    }
+    if (excludeFields.includes(fieldName)) {
+      return false
+    }
+  }
+
+  // Account fields - generally not in JWT
+  if (modelKey === 'account') {
+    return false
+  }
+
+  // Verification fields - not in JWT
+  if (modelKey === 'verification') {
+    return false
+  }
+
+  // Default: don't set (let Payload decide)
+  return undefined
+}
+
+/**
+ * Simple pluralization (add 's' suffix)
+ */
+function pluralize(name: string): string {
+  if (name.endsWith('s')) return name
+  return `${name}s`
 }
 
 function mapFieldType(
@@ -65,6 +144,12 @@ function mapFieldType(
     case 'string':
       if (fieldName === 'email') return 'email'
       return 'text'
+    case 'json':
+    case 'object':
+      return 'json'
+    case 'string[]':
+    case 'array':
+      return 'json' // Payload doesn't have native string array, use JSON
     default:
       return 'text'
   }
@@ -72,21 +157,23 @@ function mapFieldType(
 
 function extractRelationTarget(
   fieldName: string,
-  slugOverrides: Record<string, string>
+  usePlural: boolean
 ): string {
   const base = fieldName.replace(/(_id|Id)$/, '')
-  const pluralized = base.endsWith('s') ? base : `${base}s`
-  return slugOverrides[base] ?? slugOverrides[pluralized] ?? pluralized
+  return usePlural ? pluralize(base) : base
 }
 
 function generateCollection(
   modelKey: string,
   table: ReturnType<typeof getAuthTables>[string],
-  slugOverrides: Record<string, string>,
+  usePlural: boolean,
   adminGroup: string,
-  customAccess?: BetterAuthCollectionsOptions['access']
+  customAccess?: BetterAuthCollectionsOptions['access'],
+  configureSaveToJWT = true
 ): CollectionConfig {
-  const slug = slugOverrides[modelKey] ?? table.modelName ?? modelKey
+  // Use modelName from schema if set, otherwise apply pluralization to modelKey
+  const baseName = table.modelName ?? modelKey
+  const slug = usePlural ? pluralize(baseName) : baseName
   const fields: Field[] = []
 
   for (const [fieldKey, fieldDef] of Object.entries(table.fields)) {
@@ -99,23 +186,33 @@ function generateCollection(
     const fieldType = mapFieldType(fieldDef.type as string, fieldKey, hasReferences)
 
     if (fieldType === 'relationship') {
-      const relationTo = fieldDef.references?.model
-        ? slugOverrides[fieldDef.references.model] ?? fieldDef.references.model
-        : extractRelationTarget(fieldKey, slugOverrides)
+      // Use schema reference if available, otherwise infer from field name
+      let relationTo: string
+      if (fieldDef.references?.model) {
+        relationTo = usePlural ? pluralize(fieldDef.references.model) : fieldDef.references.model
+      } else {
+        relationTo = extractRelationTarget(fieldKey, usePlural)
+      }
+
+      const relFieldName = fieldName.replace(/(_id|Id)$/, '')
+      const saveToJWT = configureSaveToJWT ? getSaveToJWT(modelKey, relFieldName) : undefined
 
       fields.push({
-        name: fieldName.replace(/(_id|Id)$/, ''),
+        name: relFieldName,
         type: 'relationship',
         relationTo,
         required: fieldDef.required ?? false,
         index: true,
+        ...(saveToJWT !== undefined && { saveToJWT }),
       } as Field)
       continue
     }
 
+    const saveToJWT = configureSaveToJWT ? getSaveToJWT(modelKey, fieldName) : undefined
     const field: Record<string, unknown> = {
       name: fieldName,
       type: fieldType,
+      ...(saveToJWT !== undefined && { saveToJWT }),
     }
 
     if (fieldDef.required) field.required = true
@@ -145,11 +242,12 @@ function generateCollection(
     fields.some((field) => 'name' in field && field.name === f)
   )
 
-  // Default access: admin-only read/delete, disabled create/update
+  // Default access: admin-only read/delete, disabled manual create/update via admin UI
+  // The adapter uses overrideAccess: true for programmatic operations from Better Auth
   const defaultAccess: CollectionConfig['access'] = {
     read: ({ req }) => (req.user as { role?: string } | undefined)?.role === 'admin',
-    create: () => false,
-    update: () => false,
+    create: () => false, // Manual creation disabled - Better Auth manages these
+    update: () => false, // Manual update disabled - Better Auth manages these
     delete: ({ req }) => (req.user as { role?: string } | undefined)?.role === 'admin',
   }
 
@@ -167,11 +265,128 @@ function generateCollection(
 }
 
 /**
+ * Get existing field names from a collection, handling nested field structures.
+ */
+function getExistingFieldNames(fields: Field[]): Set<string> {
+  const names = new Set<string>()
+  for (const field of fields) {
+    if ('name' in field && field.name) {
+      names.add(field.name)
+    }
+  }
+  return names
+}
+
+/**
+ * Augment an existing collection with missing fields from Better Auth schema.
+ * This ensures user-defined collections (like 'users') get plugin fields automatically.
+ */
+function augmentCollectionWithMissingFields(
+  collection: CollectionConfig,
+  table: ReturnType<typeof getAuthTables>[string],
+  usePlural: boolean,
+  modelKey: string,
+  configureSaveToJWT = true
+): CollectionConfig {
+  const existingFieldNames = getExistingFieldNames(collection.fields)
+  const missingFields: Field[] = []
+
+  for (const [fieldKey, fieldDef] of Object.entries(table.fields)) {
+    // Skip standard fields that Payload handles
+    if (['id', 'createdAt', 'updatedAt'].includes(fieldKey)) {
+      continue
+    }
+
+    const fieldName = fieldDef.fieldName ?? fieldKey
+    const hasReferences = fieldDef.references !== undefined
+
+    // For reference fields, check the name without Id suffix
+    const payloadFieldName = hasReferences
+      ? fieldName.replace(/(_id|Id)$/, '')
+      : fieldName
+
+    // Skip if field already exists
+    if (existingFieldNames.has(payloadFieldName)) {
+      continue
+    }
+
+    // Generate the missing field
+    const fieldType = mapFieldType(fieldDef.type as string, fieldKey, hasReferences)
+
+    if (fieldType === 'relationship') {
+      let relationTo: string
+      if (fieldDef.references?.model) {
+        relationTo = usePlural ? pluralize(fieldDef.references.model) : fieldDef.references.model
+      } else {
+        relationTo = extractRelationTarget(fieldKey, usePlural)
+      }
+
+      const saveToJWT = configureSaveToJWT ? getSaveToJWT(modelKey, payloadFieldName) : undefined
+
+      missingFields.push({
+        name: payloadFieldName,
+        type: 'relationship',
+        relationTo,
+        required: fieldDef.required ?? false,
+        index: true,
+        admin: {
+          description: `Auto-added by Better Auth (${fieldKey})`,
+        },
+        ...(saveToJWT !== undefined && { saveToJWT }),
+      } as Field)
+    } else {
+      const saveToJWT = configureSaveToJWT ? getSaveToJWT(modelKey, payloadFieldName) : undefined
+      const field: Record<string, unknown> = {
+        name: payloadFieldName,
+        type: fieldType,
+        admin: {
+          description: `Auto-added by Better Auth (${fieldKey})`,
+        },
+        ...(saveToJWT !== undefined && { saveToJWT }),
+      }
+
+      if (fieldDef.required) field.required = true
+      if (fieldDef.unique) {
+        field.unique = true
+        field.index = true
+      }
+
+      if (fieldDef.defaultValue !== undefined) {
+        let defaultValue: unknown = fieldDef.defaultValue
+        if (typeof defaultValue === 'function') {
+          try {
+            defaultValue = (defaultValue as () => unknown)()
+          } catch {
+            defaultValue = undefined
+          }
+        }
+        if (defaultValue !== undefined && defaultValue !== null) {
+          field.defaultValue = defaultValue
+        }
+      }
+
+      missingFields.push(field as Field)
+    }
+  }
+
+  // Return original if no fields to add
+  if (missingFields.length === 0) {
+    return collection
+  }
+
+  // Return augmented collection
+  return {
+    ...collection,
+    fields: [...collection.fields, ...missingFields],
+  }
+}
+
+/**
  * Payload plugin that auto-generates collections from Better Auth schema.
  *
- * @example
+ * @example Basic usage
  * ```ts
- * import { betterAuthCollections } from '@delmare/payload-better-auth'
+ * import { betterAuthCollections } from '@delmaredigital/payload-better-auth'
  *
  * export default buildConfig({
  *   plugins: [
@@ -182,57 +397,100 @@ function generateCollection(
  *   ],
  * })
  * ```
+ *
+ * @example With customization callback
+ * ```ts
+ * betterAuthCollections({
+ *   betterAuthOptions: authOptions,
+ *   customizeCollection: (modelKey, collection) => {
+ *     if (modelKey === 'session') {
+ *       return {
+ *         ...collection,
+ *         hooks: { afterDelete: [cleanupHook] },
+ *       }
+ *     }
+ *     return collection
+ *   },
+ * })
+ * ```
  */
 export function betterAuthCollections(
   options: BetterAuthCollectionsOptions = {}
 ): Plugin {
   const {
     betterAuthOptions = {},
-    slugOverrides = {},
     skipCollections = ['user'],
     adminGroup = 'Auth',
     access,
+    usePlural = true,
+    configureSaveToJWT = true,
+    customizeCollection,
   } = options
 
-  const finalSlugOverrides = { ...DEFAULT_SLUG_OVERRIDES, ...slugOverrides }
-
   return (incomingConfig: Config): Config => {
-    const existingCollectionSlugs = new Set(
-      (incomingConfig.collections ?? []).map((c) => c.slug)
+    const existingCollections = new Map(
+      (incomingConfig.collections ?? []).map((c) => [c.slug, c])
     )
 
     const tables = getAuthTables(betterAuthOptions)
     const generatedCollections: CollectionConfig[] = []
+    const augmentedCollections: CollectionConfig[] = []
 
     for (const [modelKey, table] of Object.entries(tables)) {
+      // Calculate slug
+      const baseName = table.modelName ?? modelKey
+      const slug = usePlural ? pluralize(baseName) : baseName
+
+      // Check if this collection already exists
+      const existingCollection = existingCollections.get(slug)
+
+      if (existingCollection) {
+        // Augment existing collection with missing fields from Better Auth schema
+        const augmented = augmentCollectionWithMissingFields(
+          existingCollection,
+          table,
+          usePlural,
+          modelKey,
+          configureSaveToJWT
+        )
+        if (augmented !== existingCollection) {
+          augmentedCollections.push(augmented)
+          existingCollections.set(slug, augmented)
+        }
+        continue
+      }
+
+      // Skip if explicitly told to (but still augment if exists above)
       if (skipCollections.includes(modelKey)) {
         continue
       }
 
-      const slug = finalSlugOverrides[modelKey] ?? table.modelName ?? modelKey
-
-      if (existingCollectionSlugs.has(slug)) {
-        continue
-      }
-
-      const collection = generateCollection(
+      let collection = generateCollection(
         modelKey,
         table,
-        finalSlugOverrides,
+        usePlural,
         adminGroup,
-        access
+        access,
+        configureSaveToJWT
       )
+
+      // Apply customization callback if provided
+      if (customizeCollection) {
+        collection = customizeCollection(modelKey, collection)
+      }
 
       generatedCollections.push(collection)
     }
 
+    // Merge: replace augmented collections, add new ones
+    const finalCollections = (incomingConfig.collections ?? []).map((c) => {
+      const augmented = augmentedCollections.find((a) => a.slug === c.slug)
+      return augmented ?? c
+    })
 
     return {
       ...incomingConfig,
-      collections: [
-        ...(incomingConfig.collections ?? []),
-        ...generatedCollections,
-      ],
+      collections: [...finalCollections, ...generatedCollections],
     }
   }
 }

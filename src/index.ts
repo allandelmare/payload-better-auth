@@ -20,15 +20,104 @@ export {
   createBetterAuthPlugin,
   betterAuthStrategy,
   resetAuthInstance,
+  getApiKeyScopesConfig,
 } from './plugin/index.js'
 export type {
   Auth,
-  PayloadWithAuth,
   CreateAuthFunction,
   BetterAuthPluginOptions,
   BetterAuthPluginAdminOptions,
   BetterAuthStrategyOptions,
 } from './plugin/index.js'
+
+// Enhanced Better Auth types with inference
+export type {
+  BetterAuthReturn,
+  PayloadWithAuth,
+  PayloadRequestWithBetterAuth,
+  CollectionHookWithBetterAuth,
+  EndpointWithBetterAuth,
+  RoleArray,
+} from './types/betterAuth.js'
+
+// Generated schema types
+export type {
+  User,
+  Session as BetterAuthSession,
+  Account,
+  Verification,
+  Apikey,
+  Passkey,
+  Organization,
+  Member,
+  Invitation,
+  Team,
+  TeamMember,
+  TwoFactor,
+  BaseUserFields,
+  BaseSessionFields,
+  BaseAccountFields,
+  UserPluginFields,
+  SessionPluginFields,
+  BetterAuthFullSchema,
+  ModelKey,
+  PluginId,
+} from './generated-types.js'
+
+// API key scope types
+export type {
+  ScopeDefinition,
+  ApiKeyScopesConfig,
+  AvailableScope,
+} from './types/apiKey.js'
+
+// Scope utilities
+export {
+  generateScopesFromCollections,
+  buildAvailableScopes,
+  scopesToPermissions,
+} from './utils/generateScopes.js'
+
+// Access control utilities
+export {
+  normalizeRoles,
+  hasAnyRole,
+  hasAllRoles,
+  hasAdminRoles,
+  isAdmin,
+  isAdminField,
+  isAdminOrSelf,
+  canUpdateOwnFields,
+  isAuthenticated,
+  isAuthenticatedField,
+  hasRole,
+  hasRoleField,
+  requireAllRoles,
+} from './utils/access.js'
+export type {
+  RoleCheckConfig,
+  SelfAccessConfig,
+  FieldUpdateConfig,
+} from './utils/access.js'
+
+// API key scope enforcement utilities
+export {
+  extractApiKeyFromRequest,
+  getApiKeyInfo,
+  hasScope,
+  hasAnyScope as hasAnyScopeKey,
+  hasAllScopes as hasAllScopesKey,
+  requireScope,
+  requireAnyScope,
+  requireAllScopes as requireAllScopesKey,
+  allowSessionOrScope,
+  allowSessionOrAnyScope,
+  validateApiKey,
+} from './utils/apiKeyAccess.js'
+export type {
+  ApiKeyInfo,
+  ApiKeyAccessConfig,
+} from './utils/apiKeyAccess.js'
 
 // Auth config detection utility
 export { detectAuthConfig } from './utils/detectAuthConfig.js'

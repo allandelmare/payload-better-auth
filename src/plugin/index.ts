@@ -13,11 +13,18 @@ import type {
   PayloadHandler,
   Config,
 } from 'payload'
-import type { betterAuth } from 'better-auth'
+import type { betterAuth, BetterAuthOptions } from 'better-auth'
 import { detectAuthConfig } from '../utils/detectAuthConfig.js'
+import {
+  detectEnabledPlugins,
+  type EnabledPluginsResult,
+} from '../utils/detectEnabledPlugins.js'
+import type { ApiKeyScopesConfig } from '../types/apiKey.js'
 
 export type Auth = ReturnType<typeof betterAuth>
-export type PayloadWithAuth = BasePayload & { betterAuth: Auth }
+// PayloadWithAuth from types
+import type { PayloadWithAuth } from '../types/betterAuth.js'
+export type { PayloadWithAuth } from '../types/betterAuth.js'
 
 export type CreateAuthFunction = (payload: BasePayload) => Auth
 
@@ -35,12 +42,19 @@ export type BetterAuthPluginAdminOptions = {
     /** Path to redirect after successful login. Default: '/admin' */
     afterLoginPath?: string
     /**
-     * Required role for admin access. Default: 'admin'.
-     * Set to null to disable role checking.
-     * For complex RBAC (multiple roles, permissions), disable the login view
-     * and create your own with custom logic.
+     * Required role(s) for admin access.
+     * - string: Single role required (default: 'admin')
+     * - string[]: Multiple roles (behavior depends on requireAllRoles)
+     * - null: Disable role checking
      */
-    requiredRole?: string | null
+    requiredRole?: string | string[] | null
+    /**
+     * When requiredRole is an array, require ALL roles (true) or ANY role (false).
+     * Default: false (any matching role grants access)
+     */
+    requireAllRoles?: boolean
+    /** Enable passkey (WebAuthn) sign-in option. Default: false */
+    enablePasskey?: boolean
   }
   /** Path to custom logout button component (import map format) */
   logoutButtonComponent?: string
@@ -48,6 +62,33 @@ export type BetterAuthPluginAdminOptions = {
   beforeLoginComponent?: string
   /** Path to custom login view component (import map format) */
   loginViewComponent?: string
+
+  /**
+   * Enable management UI for security features (2FA, API keys).
+   * Management views are auto-injected based on which Better Auth plugins are enabled.
+   * @default true
+   */
+  enableManagementUI?: boolean
+  /**
+   * Better Auth options - used to detect which plugins are enabled.
+   * Required for management UI to auto-detect enabled features.
+   */
+  betterAuthOptions?: Partial<BetterAuthOptions>
+  /** Custom paths for management views */
+  managementPaths?: {
+    /** Two-factor management view path. Default: '/security/two-factor' */
+    twoFactor?: string
+    /** API keys management view path. Default: '/security/api-keys' */
+    apiKeys?: string
+    /** Passkeys management view path. Default: '/security/passkeys' */
+    passkeys?: string
+  }
+  /**
+   * API key scopes configuration.
+   * Controls which permission scopes are available when creating API keys.
+   * When not provided, scopes are auto-generated from Payload collections.
+   */
+  apiKey?: ApiKeyScopesConfig
 }
 
 export type BetterAuthPluginOptions = {
@@ -86,6 +127,17 @@ export type BetterAuthPluginOptions = {
 
 // Track auth instance for HMR
 let authInstance: Auth | null = null
+
+// Store API key scopes config for access by management views
+let apiKeyScopesConfig: ApiKeyScopesConfig | undefined = undefined
+
+/**
+ * Get the configured API key scopes config.
+ * Used by the ApiKeysView to build available scopes.
+ */
+export function getApiKeyScopesConfig(): ApiKeyScopesConfig | undefined {
+  return apiKeyScopesConfig
+}
 
 /**
  * Creates the auth endpoint handler that proxies requests to Better Auth.
@@ -143,7 +195,9 @@ function createAuthEndpointHandler(): PayloadHandler {
         body,
       })
 
-      return auth.handler(request)
+      const response = await auth.handler(request)
+
+      return response
     } catch (error) {
       console.error('[better-auth] Endpoint handler error:', error)
       return new Response(
@@ -245,6 +299,87 @@ function injectAdminComponents(
 }
 
 /**
+ * Injects management UI components into the Payload config based on enabled plugins.
+ */
+function injectManagementComponents(
+  config: Config,
+  options: BetterAuthPluginOptions
+): Config {
+  const adminOptions = options.admin ?? {}
+
+  // Skip if management UI is disabled
+  if (adminOptions.enableManagementUI === false) {
+    return config
+  }
+
+  // Detect which plugins are enabled
+  const enabledPlugins = detectEnabledPlugins(adminOptions.betterAuthOptions)
+
+  // Get custom paths or use defaults
+  const paths = {
+    twoFactor: adminOptions.managementPaths?.twoFactor ?? '/security/two-factor',
+    apiKeys: adminOptions.managementPaths?.apiKeys ?? '/security/api-keys',
+    passkeys: adminOptions.managementPaths?.passkeys ?? '/security/passkeys',
+  }
+
+  const existingComponents = config.admin?.components ?? {}
+  const existingViews =
+    (existingComponents.views as Record<string, unknown> | undefined) ?? {}
+  const existingAfterNavLinks = existingComponents.afterNavLinks ?? []
+
+  // Build management views based on enabled plugins
+  // Note: Sessions and passkeys use Payload's default collection views
+  const managementViews: Record<string, { Component: string; path: string }> = {}
+
+  // Two-factor (if enabled)
+  if (enabledPlugins.hasTwoFactor) {
+    managementViews.securityTwoFactor = {
+      Component: '@delmaredigital/payload-better-auth/rsc#TwoFactorView',
+      path: paths.twoFactor,
+    }
+  }
+
+  // API keys (if enabled)
+  if (enabledPlugins.hasApiKey) {
+    managementViews.securityApiKeys = {
+      Component: '@delmaredigital/payload-better-auth/rsc#ApiKeysView',
+      path: paths.apiKeys,
+    }
+  }
+
+  // Passkeys (if enabled)
+  if (enabledPlugins.hasPasskey) {
+    managementViews.securityPasskeys = {
+      Component: '@delmaredigital/payload-better-auth/rsc#PasskeysView',
+      path: paths.passkeys,
+    }
+  }
+
+  // Add SecurityNavLinks to afterNavLinks
+  const afterNavLinks = [
+    ...(Array.isArray(existingAfterNavLinks)
+      ? existingAfterNavLinks
+      : [existingAfterNavLinks]),
+    '@delmaredigital/payload-better-auth/components/management#SecurityNavLinks',
+  ]
+
+  return {
+    ...config,
+    admin: {
+      ...config.admin,
+      components: {
+        ...existingComponents,
+        views: {
+          ...existingViews,
+          ...managementViews,
+        },
+        afterNavLinks,
+      },
+    },
+  } as Config
+}
+
+/**
  * Payload plugin that initializes Better Auth.
  *
  * Better Auth is created in onInit (after Payload is ready) to avoid
@@ -254,6 +389,7 @@ function injectAdminComponents(
  * Features:
  * - Auto-registers auth API endpoints (configurable)
  * - Auto-injects admin components when disableLocalStrategy is detected
+ * - Auto-injects management UI for security features based on enabled plugins
  * - Handles HMR gracefully
  *
  * @example
@@ -282,12 +418,18 @@ export function createBetterAuthPlugin(
     autoInjectAdminComponents = true,
   } = options
 
+  // Store API key scopes config for access by management views
+  apiKeyScopesConfig = options.admin?.apiKey
+
   return (incomingConfig) => {
     // Inject admin components if enabled
     let config =
       autoInjectAdminComponents
         ? injectAdminComponents(incomingConfig, options)
         : incomingConfig
+
+    // Inject management UI components
+    config = injectManagementComponents(config, options)
 
     // Generate auth endpoints if enabled
     const authEndpoints = autoRegisterEndpoints
