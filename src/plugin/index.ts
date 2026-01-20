@@ -268,7 +268,7 @@ function injectAdminComponents(
     : {
         Component:
           adminOptions.loginViewComponent ??
-          '@delmaredigital/payload-better-auth/components#LoginView',
+          '@delmaredigital/payload-better-auth/rsc#LoginViewWrapper',
         path: '/login' as const,
       }
 
@@ -277,8 +277,18 @@ function injectAdminComponents(
     ...(newLoginView ? { login: newLoginView } : {}),
   }
 
+  // Store login config in config.custom for the RSC wrapper to read
+  const loginConfig = adminOptions.login ?? {}
+
   return {
     ...config,
+    custom: {
+      ...config.custom,
+      betterAuth: {
+        ...(config.custom?.betterAuth as Record<string, unknown> | undefined),
+        login: loginConfig,
+      },
+    },
     admin: {
       ...config.admin,
       components: {
