@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2026-01-23
+
+### Fixed
+
+#### Session Fields Now Available on req.user
+
+When using Better Auth plugins that store data on the session (like the organization plugin), those fields are now available on `req.user` in Payload access control functions.
+
+**Before:** `req.user.activeOrganizationId` was always `undefined`
+
+**After:** Session fields are merged onto the user object:
+- `req.user.activeOrganizationId` - from organization plugin
+- `req.user.organizationRole` - user's role in the active organization (auto-fetched from members collection)
+- Any other session fields from enabled plugins
+
+This enables organization-scoped access control patterns:
+
+```typescript
+export const orgReadAccess: Access = ({ req }) => {
+  if (!req.user?.activeOrganizationId) return false
+  return {
+    organization: { equals: req.user.activeOrganizationId }
+  }
+}
+```
+
+### Added
+
+- New `membersCollection` option for `betterAuthStrategy()` to customize the members collection slug (default: `'members'`)
+
+---
+
 ## [0.3.2] - 2026-01-19
 
 ### Fixed

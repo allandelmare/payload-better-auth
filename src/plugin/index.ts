@@ -490,15 +490,26 @@ export function createBetterAuthPlugin(
 export type BetterAuthStrategyOptions = {
   /**
    * The collection slug for users
-   * Default: 'users'
+   * @default 'users'
    */
   usersCollection?: string
+  /**
+   * The collection slug for organization members (used for organization role lookup)
+   * @default 'members'
+   */
+  membersCollection?: string
 }
 
 /**
  * Payload auth strategy that uses Better Auth for authentication.
  *
  * Use this in your Users collection to authenticate via Better Auth sessions.
+ *
+ * Session fields (like `activeOrganizationId` from the organization plugin) are
+ * automatically merged onto `req.user`, making them available in access control functions.
+ *
+ * If an active organization is set, the user's role in that organization is also
+ * fetched and available as `req.user.organizationRole`.
  *
  * @example
  * ```ts
@@ -513,11 +524,22 @@ export type BetterAuthStrategyOptions = {
  *   // ...
  * }
  * ```
+ *
+ * @example Access control with organization data
+ * ```ts
+ * // In your access control:
+ * export const orgReadAccess: Access = ({ req }) => {
+ *   if (!req.user?.activeOrganizationId) return false
+ *   return {
+ *     organization: { equals: req.user.activeOrganizationId }
+ *   }
+ * }
+ * ```
  */
 export function betterAuthStrategy(
   options: BetterAuthStrategyOptions = {}
 ): AuthStrategy {
-  const { usersCollection = 'users' } = options
+  const { usersCollection = 'users', membersCollection = 'members' } = options
 
   return {
     name: 'better-auth',
@@ -537,15 +559,15 @@ export function betterAuthStrategy(
           return { user: null }
         }
 
-        const session = await auth.api.getSession({ headers })
+        const sessionData = await auth.api.getSession({ headers })
 
-        if (!session?.user?.id) {
+        if (!sessionData?.user?.id) {
           return { user: null }
         }
 
         const users = await payload.find({
           collection: usersCollection,
-          where: { id: { equals: session.user.id } },
+          where: { id: { equals: sessionData.user.id } },
           limit: 1,
           depth: 0,
         })
@@ -554,9 +576,44 @@ export function betterAuthStrategy(
           return { user: null }
         }
 
+        // Extract session fields to merge onto user (e.g., activeOrganizationId from org plugin)
+        // Exclude fields that might conflict with user fields
+        const {
+          id: _sessionId,
+          userId: _userId,
+          expiresAt: _expiresAt,
+          token: _token,
+          ...sessionFields
+        } = (sessionData.session as Record<string, unknown>) || {}
+
+        // If there's an active organization, fetch the user's role in that org
+        let organizationRole: string | undefined
+        if (sessionFields.activeOrganizationId) {
+          try {
+            const memberships = await payload.find({
+              collection: membersCollection,
+              where: {
+                and: [
+                  { user: { equals: sessionData.user.id } },
+                  { organization: { equals: sessionFields.activeOrganizationId } },
+                ],
+              },
+              limit: 1,
+              depth: 0,
+            })
+            if (memberships.docs.length > 0) {
+              organizationRole = (memberships.docs[0] as { role?: string }).role
+            }
+          } catch {
+            // Members collection might not exist (org plugin not used), silently ignore
+          }
+        }
+
         return {
           user: {
             ...users.docs[0],
+            ...sessionFields, // Merge session fields (activeOrganizationId, etc.)
+            ...(organizationRole && { organizationRole }), // Add org role if found
             collection: usersCollection,
             _strategy: 'better-auth',
           },
