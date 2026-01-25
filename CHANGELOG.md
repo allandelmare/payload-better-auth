@@ -7,7 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### First User Admin
+
+The first registered user is now automatically made an admin. This is enabled by default via `betterAuthCollections()`.
+
+```typescript
+betterAuthCollections({
+  betterAuthOptions,
+  // firstUserAdmin: true  ← enabled by default
+})
+```
+
+**Customize:**
+```typescript
+betterAuthCollections({
+  betterAuthOptions,
+  firstUserAdmin: {
+    adminRole: 'super-admin',  // default: 'admin'
+    defaultRole: 'member',      // default: 'user'
+    roleField: 'userRole',      // default: 'role'
+  },
+})
+```
+
+**Disable:**
+```typescript
+betterAuthCollections({
+  betterAuthOptions,
+  firstUserAdmin: false,
+})
+```
+
+A standalone `firstUserAdminHooks()` utility is also exported for use with Better Auth's `databaseHooks` in advanced scenarios.
+
 ### Fixed
+
+#### Adapter Returns Database Results Over Input Data
+
+The adapter now correctly prioritizes database results over input data when returning from create/update operations. This fixes an issue where Payload hooks that modify data (like `firstUserAdmin` setting role to 'admin') were being overwritten by the original input data.
+
+#### Session Re-fetch After Signup
+
+The LoginView now re-fetches the session after signup to get the updated user data. This ensures that role changes from Payload hooks (like `firstUserAdmin`) are reflected immediately, preventing the "Access Denied" screen after first user registration.
 
 #### ID Field Type Conversion for Serial IDs
 

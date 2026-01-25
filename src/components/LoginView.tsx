@@ -308,12 +308,18 @@ export function LoginView({
 
       // Registration successful - either auto-signed in or need to verify email
       if (result.data?.user) {
-        const user = result.data.user as { role?: unknown }
-        // Check role if required
-        if (!checkUserRoles(user, requiredRole, requireAllRoles)) {
-          setAccessDenied(true)
-          setLoading(false)
-          return
+        // Re-fetch session to get updated user data (role may have been changed by hooks)
+        // This handles cases like firstUserAdmin where the role is set after creation
+        const sessionResult = await client.getSession()
+
+        if (sessionResult.data?.user) {
+          const user = sessionResult.data.user as { role?: unknown }
+          // Check role if required
+          if (!checkUserRoles(user, requiredRole, requireAllRoles)) {
+            setAccessDenied(true)
+            setLoading(false)
+            return
+          }
         }
 
         router.push(afterLoginPath)

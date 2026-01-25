@@ -2,6 +2,8 @@
 
 Better Auth adapter and plugins for Payload CMS. Enables seamless integration between Better Auth and Payload.
 
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fdelmaredigital%2Fdd-starter&project-name=my-payload-site&build-command=pnpm%20run%20ci&env=PAYLOAD_SECRET,BETTER_AUTH_SECRET&stores=%5B%7B%22type%22%3A%22integration%22%2C%22protocol%22%3A%22storage%22%2C%22productSlug%22%3A%22neon%22%2C%22integrationSlug%22%3A%22neon%22%7D%2C%7B%22type%22%3A%22blob%22%7D%5D)
+
 ---
 
 ## Table of Contents
@@ -349,7 +351,32 @@ betterAuthCollections({
 | `access` | `CollectionConfig['access']` | Custom access control for generated collections |
 | `usePlural` | `boolean` | Pluralize collection slugs (default: `true`) |
 | `configureSaveToJWT` | `boolean` | Auto-configure `saveToJWT` for session-critical fields (default: `true`) |
+| `firstUserAdmin` | `boolean \| FirstUserAdminOptions` | Make first registered user an admin (default: `true`) |
 | `customizeCollection` | `(modelKey, collection) => CollectionConfig` | Customize generated collections |
+
+**First User Admin:**
+
+By default, the first user to register is automatically assigned the admin role. This provides a better out-of-the-box experience - no need to manually update the database to create your first admin.
+
+```typescript
+// Enabled by default - first user gets role='admin'
+betterAuthCollections({ betterAuthOptions })
+
+// Customize roles
+betterAuthCollections({
+  betterAuthOptions,
+  firstUserAdmin: {
+    adminRole: 'super-admin',  // Role for first user (default: 'admin')
+    defaultRole: 'member',      // Role for subsequent users (default: 'user')
+    roleField: 'userRole',      // Field name (default: 'role')
+  },
+})
+
+// Disable
+betterAuthCollections({
+  betterAuthOptions,
+  firstUserAdmin: false,
+})
 
 **Customization Example:**
 

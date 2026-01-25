@@ -4,9 +4,12 @@
  * @packageDocumentation
  */
 
-import type { Config, CollectionConfig, Field, Plugin } from 'payload'
+import type { Config, CollectionConfig, Field, Plugin, CollectionBeforeChangeHook } from 'payload'
 import type { BetterAuthOptions } from 'better-auth'
 import { getAuthTables } from 'better-auth/db'
+import type { FirstUserAdminOptions } from '../utils/firstUserAdmin.js'
+
+export type { FirstUserAdminOptions }
 
 export type BetterAuthCollectionsOptions = {
   /**
@@ -48,6 +51,33 @@ export type BetterAuthCollectionsOptions = {
   configureSaveToJWT?: boolean
 
   /**
+   * Automatically make the first registered user an admin.
+   * Enabled by default. Set to `false` to disable, or provide options to customize.
+   *
+   * @default true
+   *
+   * @example Disable
+   * ```ts
+   * betterAuthCollections({
+   *   betterAuthOptions: authOptions,
+   *   firstUserAdmin: false,
+   * })
+   * ```
+   *
+   * @example Custom roles
+   * ```ts
+   * betterAuthCollections({
+   *   betterAuthOptions: authOptions,
+   *   firstUserAdmin: {
+   *     adminRole: 'super-admin',
+   *     defaultRole: 'member',
+   *   },
+   * })
+   * ```
+   */
+  firstUserAdmin?: boolean | FirstUserAdminOptions
+
+  /**
    * Customize a generated collection before it's added to config.
    * Use this to add hooks, modify fields, or adjust any collection setting.
    *
@@ -70,6 +100,74 @@ export type BetterAuthCollectionsOptions = {
     modelKey: string,
     collection: CollectionConfig
   ) => CollectionConfig
+}
+
+/**
+ * Creates a beforeChange hook that makes the first user an admin.
+ */
+function createFirstUserAdminHook(
+  options: FirstUserAdminOptions,
+  usersSlug: string
+): CollectionBeforeChangeHook {
+  const {
+    adminRole = 'admin',
+    defaultRole = 'user',
+    roleField = 'role',
+  } = options
+
+  return async ({ data, operation, req }) => {
+    if (operation !== 'create') {
+      return data
+    }
+
+    try {
+      const { totalDocs } = await req.payload.count({
+        collection: usersSlug,
+        overrideAccess: true,
+      })
+
+      if (totalDocs === 0) {
+        // First user becomes admin
+        return {
+          ...data,
+          [roleField]: adminRole,
+        }
+      }
+
+      // Subsequent users get default role if not already set
+      return {
+        ...data,
+        [roleField]: data[roleField] ?? defaultRole,
+      }
+    } catch (error) {
+      // On error, don't block user creation - just use provided or default role
+      console.warn('[betterAuthCollections] Failed to check user count:', error)
+      return {
+        ...data,
+        [roleField]: data[roleField] ?? defaultRole,
+      }
+    }
+  }
+}
+
+/**
+ * Inject the first-user-admin hook into a collection's hooks.
+ */
+function injectFirstUserAdminHook(
+  collection: CollectionConfig,
+  options: FirstUserAdminOptions,
+  usersSlug: string
+): CollectionConfig {
+  const hook = createFirstUserAdminHook(options, usersSlug)
+  const existingHooks = collection.hooks?.beforeChange ?? []
+
+  return {
+    ...collection,
+    hooks: {
+      ...collection.hooks,
+      beforeChange: [hook, ...(Array.isArray(existingHooks) ? existingHooks : [existingHooks])],
+    },
+  }
 }
 
 /**
@@ -424,8 +522,17 @@ export function betterAuthCollections(
     access,
     usePlural = true,
     configureSaveToJWT = true,
+    firstUserAdmin,
     customizeCollection,
   } = options
+
+  // Parse firstUserAdmin option (defaults to true)
+  const firstUserAdminOptions: FirstUserAdminOptions | null =
+    firstUserAdmin === false
+      ? null
+      : typeof firstUserAdmin === 'object'
+        ? firstUserAdmin
+        : {} // true or undefined = enabled with defaults
 
   return (incomingConfig: Config): Config => {
     const existingCollections = new Map(
@@ -435,6 +542,12 @@ export function betterAuthCollections(
     const tables = getAuthTables(betterAuthOptions)
     const generatedCollections: CollectionConfig[] = []
     const augmentedCollections: CollectionConfig[] = []
+
+    // Calculate users collection slug for firstUserAdmin hook
+    const userTable = tables['user']
+    const usersSlug = usePlural
+      ? pluralize(userTable?.modelName ?? 'user')
+      : (userTable?.modelName ?? 'user')
 
     for (const [modelKey, table] of Object.entries(tables)) {
       // Calculate slug
@@ -446,13 +559,19 @@ export function betterAuthCollections(
 
       if (existingCollection) {
         // Augment existing collection with missing fields from Better Auth schema
-        const augmented = augmentCollectionWithMissingFields(
+        let augmented = augmentCollectionWithMissingFields(
           existingCollection,
           table,
           usePlural,
           modelKey,
           configureSaveToJWT
         )
+
+        // Inject first-user-admin hook for user collection
+        if (modelKey === 'user' && firstUserAdminOptions) {
+          augmented = injectFirstUserAdminHook(augmented, firstUserAdminOptions, usersSlug)
+        }
+
         if (augmented !== existingCollection) {
           augmentedCollections.push(augmented)
           existingCollections.set(slug, augmented)
@@ -473,6 +592,11 @@ export function betterAuthCollections(
         access,
         configureSaveToJWT
       )
+
+      // Inject first-user-admin hook for user collection
+      if (modelKey === 'user' && firstUserAdminOptions) {
+        collection = injectFirstUserAdminHook(collection, firstUserAdminOptions, usersSlug)
+      }
 
       // Apply customization callback if provided
       if (customizeCollection) {

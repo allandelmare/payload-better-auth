@@ -482,8 +482,9 @@ export function payloadAdapter({
                 overrideAccess: true,
               })
               // Transform back and merge with input data for Better Auth
+              // Database result takes precedence (handles hooks that modify data like firstUserAdmin)
               const transformed = transformDataFromPayload(model, result as Record<string, unknown>)
-              return { ...transformed, ...data } as typeof data
+              return { ...data, ...transformed } as typeof data
             } catch (error) {
               console.error('[payload-adapter] create failed:', {
                 collection,
@@ -601,7 +602,7 @@ export function payloadAdapter({
                 overrideAccess: true,
               })
               const transformed = transformDataFromPayload(model, result as Record<string, unknown>)
-              return { ...transformed, ...data } as typeof data
+              return { ...data, ...transformed } as typeof data
             }
 
             const payloadWhere = convertWhereToPayload(model, where)
@@ -615,7 +616,7 @@ export function payloadAdapter({
 
             if (!result.docs[0]) return null
             const transformed = transformDataFromPayload(model, result.docs[0] as Record<string, unknown>)
-            return { ...transformed, ...data } as typeof data
+            return { ...data, ...transformed } as typeof data
           },
 
           updateMany: async ({ model, where, update: data }) => {
