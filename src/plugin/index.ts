@@ -20,6 +20,10 @@ import {
   type EnabledPluginsResult,
 } from '../utils/detectEnabledPlugins.js'
 import type { ApiKeyScopesConfig } from '../types/apiKey.js'
+import {
+  buildAvailableScopes,
+  scopesToPermissions,
+} from '../utils/generateScopes.js'
 
 export type Auth = ReturnType<typeof betterAuth>
 // PayloadWithAuth from types
@@ -139,6 +143,129 @@ export function getApiKeyScopesConfig(): ApiKeyScopesConfig | undefined {
   return apiKeyScopesConfig
 }
 
+// Type for auth api methods we need
+type AuthApi = {
+  getSession: (options: { headers: Headers }) => Promise<{
+    user?: { id: string } | null
+    session?: Record<string, unknown> | null
+  } | null>
+  createApiKey?: (options: {
+    body: {
+      name?: string
+      expiresIn?: number
+      userId: string
+      prefix?: string
+      metadata?: Record<string, unknown>
+      permissions?: Record<string, string[]>
+    }
+  }) => Promise<{
+    key: string
+    id: string
+    name: string | null
+    userId: string
+    expiresAt: Date | null
+    createdAt: Date
+    metadata: Record<string, unknown> | null
+  }>
+}
+
+/**
+ * Handle API key creation with scopes server-side.
+ * Converts scopes to permissions and calls Better Auth's server API.
+ */
+async function handleApiKeyCreateWithScopes(
+  authApi: AuthApi,
+  payload: Payload,
+  headers: Headers,
+  body: Record<string, unknown>
+): Promise<Response> {
+  try {
+    // Get the current session to find the user
+    const session = await authApi.getSession({ headers })
+    if (!session?.user?.id) {
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized' }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Extract scopes from the request body
+    const scopes = (body.scopes as string[] | undefined) ?? []
+
+    // Build permissions from scopes if any are provided
+    let permissions: Record<string, string[]> | undefined
+    if (scopes.length > 0) {
+      const scopesConfig = getApiKeyScopesConfig()
+      const availableScopes = buildAvailableScopes(
+        payload.config.collections,
+        scopesConfig
+      )
+      permissions = scopesToPermissions(scopes, availableScopes)
+    }
+
+    // Build the API key creation options
+    const createOptions = {
+      body: {
+        name: body.name as string | undefined,
+        userId: session.user.id,
+        expiresIn: body.expiresIn as number | undefined,
+        prefix: body.prefix as string | undefined,
+        permissions: permissions && Object.keys(permissions).length > 0 ? permissions : undefined,
+        metadata: scopes.length > 0
+          ? { ...(body.metadata as Record<string, unknown> | undefined), scopes }
+          : (body.metadata as Record<string, unknown> | undefined),
+      },
+    }
+
+    // Call Better Auth's server-side API
+    if (typeof authApi.createApiKey !== 'function') {
+      return new Response(
+        JSON.stringify({ error: 'API key plugin not enabled' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+
+    try {
+      const result = await authApi.createApiKey(createOptions)
+      return new Response(JSON.stringify(result), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    } catch (createError) {
+      // Check if error is due to metadata being disabled
+      const errorMessage = createError instanceof Error ? createError.message : String(createError)
+      const isMetadataDisabled = errorMessage.toLowerCase().includes('metadata') &&
+        errorMessage.toLowerCase().includes('disabled')
+
+      if (isMetadataDisabled && createOptions.body.metadata) {
+        // Retry without metadata - key will still work, just won't show scopes in UI
+        console.warn('[better-auth] Metadata disabled, creating API key without scope metadata. Enable metadata with apiKeyWithDefaults() for better UX.')
+        const optionsWithoutMetadata = {
+          body: {
+            ...createOptions.body,
+            metadata: undefined,
+          },
+        }
+        const result = await authApi.createApiKey(optionsWithoutMetadata)
+        return new Response(JSON.stringify(result), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+
+      // Re-throw other errors
+      throw createError
+    }
+  } catch (error) {
+    console.error('[better-auth] API key creation error:', error)
+    const message = error instanceof Error ? error.message : 'Failed to create API key'
+    return new Response(
+      JSON.stringify({ error: message }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    )
+  }
+}
+
 /**
  * Creates the auth endpoint handler that proxies requests to Better Auth.
  */
@@ -172,20 +299,47 @@ function createAuthEndpointHandler(): PayloadHandler {
 
       // Get request body for non-GET methods
       let body: string | undefined
+      let parsedBody: Record<string, unknown> | undefined
       if (req.method && !['GET', 'HEAD'].includes(req.method)) {
         try {
           // Try to get body from request
           if (typeof (req as unknown as { text?: () => Promise<string> }).text === 'function') {
             body = await (req as unknown as { text: () => Promise<string> }).text()
+            if (body) {
+              try {
+                parsedBody = JSON.parse(body)
+              } catch {
+                // Not JSON, that's okay
+              }
+            }
           } else if ((req as unknown as { data?: unknown }).data) {
-            body = JSON.stringify((req as unknown as { data: unknown }).data)
+            parsedBody = (req as unknown as { data: Record<string, unknown> }).data
+            body = JSON.stringify(parsedBody)
           }
         } catch {
           // Body might already be consumed, try data property
           if ((req as unknown as { data?: unknown }).data) {
-            body = JSON.stringify((req as unknown as { data: unknown }).data)
+            parsedBody = (req as unknown as { data: Record<string, unknown> }).data
+            body = JSON.stringify(parsedBody)
           }
         }
+      }
+
+      // Intercept API key creation requests with scopes
+      // Better Auth's API key create endpoint is POST /api-key/create
+      const isApiKeyCreate =
+        req.method === 'POST' &&
+        pathname.endsWith('/api-key/create') &&
+        parsedBody?.scopes &&
+        Array.isArray(parsedBody.scopes)
+
+      if (isApiKeyCreate && parsedBody) {
+        return handleApiKeyCreateWithScopes(
+          auth.api as unknown as AuthApi,
+          req.payload,
+          req.headers,
+          parsedBody
+        )
       }
 
       // Create a new Request for Better Auth
@@ -280,6 +434,7 @@ function injectAdminComponents(
   // Store login config in config.custom for the RSC wrapper to read
   const loginConfig = adminOptions.login ?? {}
 
+  // Note: enabledPlugins will be added by injectManagementComponents
   return {
     ...config,
     custom: {
@@ -365,13 +520,25 @@ function injectManagementComponents(
     }
   }
 
-  // Add SecurityNavLinks to afterNavLinks
-  const afterNavLinks = [
-    ...(Array.isArray(existingAfterNavLinks)
-      ? existingAfterNavLinks
-      : [existingAfterNavLinks]),
-    '@delmaredigital/payload-better-auth/components/management#SecurityNavLinks',
-  ]
+  // Only add nav links if at least one plugin is enabled
+  const hasAnyPlugin = enabledPlugins.hasTwoFactor || enabledPlugins.hasApiKey || enabledPlugins.hasPasskey
+
+  // Add SecurityNavLinks to afterNavLinks with clientProps for enabled plugins
+  const afterNavLinks = hasAnyPlugin
+    ? [
+        ...(Array.isArray(existingAfterNavLinks)
+          ? existingAfterNavLinks
+          : [existingAfterNavLinks]),
+        {
+          path: '@delmaredigital/payload-better-auth/components/management#SecurityNavLinks',
+          clientProps: {
+            showTwoFactor: enabledPlugins.hasTwoFactor,
+            showApiKeys: enabledPlugins.hasApiKey,
+            showPasskeys: enabledPlugins.hasPasskey,
+          },
+        },
+      ]
+    : existingAfterNavLinks
 
   return {
     ...config,

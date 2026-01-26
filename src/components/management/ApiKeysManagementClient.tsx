@@ -6,7 +6,6 @@ import {
   type PayloadAuthClient,
 } from '../../exports/client'
 import type { AvailableScope } from '../../types/apiKey.js'
-import { scopesToPermissions } from '../../utils/generateScopes.js'
 
 type ApiKey = {
   id: string
@@ -262,21 +261,20 @@ export function ApiKeysManagementClient({
 
     try {
       const client = getClient()
+      // Send scopes to server - server will convert to permissions
       const createOptions: {
         name: string
         expiresIn?: number
-        permissions?: Record<string, string[]>
-        metadata?: { scopes: string[] }
+        scopes?: string[]
       } = { name: newKeyName }
 
       if (newKeyExpiry) {
         createOptions.expiresIn = parseInt(newKeyExpiry) * 24 * 60 * 60 // Convert days to seconds
       }
 
-      // Add scopes if any are selected
+      // Add scopes if any are selected - server handles conversion to permissions
       if (hasScopes && selectedScopes.length > 0) {
-        createOptions.permissions = scopesToPermissions(selectedScopes, availableScopes)
-        createOptions.metadata = { scopes: selectedScopes }
+        createOptions.scopes = selectedScopes
       }
 
       const result = await client.apiKey.create(createOptions)

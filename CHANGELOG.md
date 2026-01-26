@@ -7,7 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-01-26
+
 ### Added
+
+#### `apiKeyWithDefaults` Utility
+
+New wrapper for Better Auth's `apiKey()` plugin that enables metadata by default:
+
+```typescript
+import { apiKeyWithDefaults } from '@delmaredigital/payload-better-auth'
+
+export const betterAuthOptions = {
+  plugins: [
+    apiKeyWithDefaults(),  // Use instead of apiKey()
+  ],
+}
+```
+
+This enables storing scope names in metadata so they display in the admin UI after key creation. The handler also gracefully retries without metadata if the plugin isn't configured with it enabled.
+
+#### `withBetterAuthDefaults` Utility
+
+New utility function that applies sensible defaults to Better Auth options. Currently handles:
+
+- **trustedOrigins**: If not explicitly provided but `baseURL` is set, defaults to `[baseURL]`
+
+This simplifies the common single-domain case where users only need to set `baseURL`:
+
+```typescript
+import { withBetterAuthDefaults, payloadAdapter } from '@delmaredigital/payload-better-auth'
+
+createBetterAuthPlugin({
+  createAuth: (payload) => betterAuth(withBetterAuthDefaults({
+    database: payloadAdapter({ payloadClient: payload }),
+    baseURL: process.env.BETTER_AUTH_URL,
+    // trustedOrigins automatically becomes [baseURL]
+  })),
+})
+```
+
+Multi-domain setups can still explicitly set `trustedOrigins` to include multiple origins - the utility won't override explicit configuration.
 
 #### First User Admin
 
@@ -43,6 +83,24 @@ betterAuthCollections({
 A standalone `firstUserAdminHooks()` utility is also exported for use with Better Auth's `databaseHooks` in advanced scenarios.
 
 ### Fixed
+
+#### Admin Sidebar Only Shows Enabled Plugins (#2)
+
+The Security navigation section now conditionally shows links based on which Better Auth plugins are actually enabled. Previously, all three links (Two-Factor Auth, API Keys, Passkeys) were shown regardless of configuration.
+
+- Links are now passed via `clientProps` injection
+- If no security plugins are enabled, the Security section doesn't appear
+
+#### API Key Creation with Scopes (#3)
+
+Creating API keys with permission scopes from the admin UI now works correctly. Previously, this failed with "THE_PROPERTY_YOURE_TRYING_TO_SET_CAN_ONLY_BE_SET_FROM_THE_SERVER_AUTH_INSTANCE_ONLY" because Better Auth marks `permissions` as server-only.
+
+The fix intercepts API key creation requests in the endpoint handler and:
+1. Extracts scopes from the request
+2. Converts scopes to permissions server-side using `scopesToPermissions()`
+3. Calls `auth.api.createApiKey()` with the permissions
+
+The UI now sends `scopes` instead of `permissions`, and the server handles the conversion.
 
 #### Adapter Returns Database Results Over Input Data
 

@@ -130,3 +130,6 @@ export type { Session } from './utils/session.js'
 // First user admin hook utility
 export { firstUserAdminHooks } from './utils/firstUserAdmin.js'
 export type { FirstUserAdminOptions } from './utils/firstUserAdmin.js'
+
+// Better Auth defaults utility
+export { withBetterAuthDefaults, apiKeyWithDefaults } from './utils/betterAuthDefaults.js'

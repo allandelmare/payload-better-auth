@@ -196,7 +196,7 @@ export default buildConfig({
           },
           baseURL: baseUrl,
           secret: process.env.BETTER_AUTH_SECRET,
-          trustedOrigins: [baseUrl],
+          trustedOrigins: [baseUrl],  // Or use withBetterAuthDefaults() below
         }),
     }),
   ],
@@ -497,6 +497,10 @@ admin: {
 }
 ```
 
+**How Permissions Work:**
+
+When creating API keys through the admin UI, users select scopes (e.g., `posts:read`, `posts:write`). These scopes are converted to Better Auth permissions server-side for security - the conversion happens in the Payload endpoint handler before calling Better Auth's API. This ensures that permission assignment is always controlled server-side, following Better Auth's security model.
+
 ### `betterAuthStrategy(options?)`
 
 Payload auth strategy for Better Auth session validation.
@@ -527,6 +531,56 @@ Get the current user on the server (shorthand for `session.user`).
 ```ts
 const user = await getServerUser(payload, headersList)
 // Returns: { id, email, name, ... } | null
+```
+
+### `withBetterAuthDefaults(options)`
+
+Applies sensible defaults to Better Auth options. Useful for simplifying common configurations.
+
+```ts
+import { withBetterAuthDefaults } from '@delmaredigital/payload-better-auth'
+
+betterAuth(withBetterAuthDefaults({
+  baseURL: 'https://myapp.com',
+  // trustedOrigins automatically becomes ['https://myapp.com']
+}))
+```
+
+| Default Applied | Condition |
+|-----------------|-----------|
+| `trustedOrigins: [baseURL]` | When `trustedOrigins` is not set but `baseURL` is |
+
+Explicit values are never overridden - if you set `trustedOrigins` manually, it won't be changed.
+
+### `apiKeyWithDefaults(options?)`
+
+Wraps Better Auth's `apiKey()` plugin with sensible defaults for use with this package.
+
+```ts
+import { apiKeyWithDefaults } from '@delmaredigital/payload-better-auth'
+
+export const betterAuthOptions = {
+  plugins: [
+    apiKeyWithDefaults(),  // Use instead of apiKey()
+  ],
+}
+```
+
+| Default Applied | Purpose |
+|-----------------|---------|
+| `enableMetadata: true` | Allows storing scope names for display in admin UI |
+
+**Why use this?**
+
+Better Auth's `apiKey()` plugin disables metadata by default. When you create API keys with scopes through the admin UI, the selected scopes need to be stored in metadata to display them later. Without metadata enabled, keys are created successfully but scopes won't appear in the UI.
+
+You can still pass any `apiKey()` options:
+
+```ts
+apiKeyWithDefaults({
+  rateLimit: { max: 100, window: 60 },
+  // enableMetadata is already true
+})
 ```
 
 ---
@@ -861,13 +915,14 @@ The adapter uses Better Auth's `createAdapterFactory` which is **schema-aware** 
 Core plugins are included in `better-auth`:
 
 ```typescript
-import { twoFactor, apiKey, organization, admin } from 'better-auth/plugins'
+import { twoFactor, organization, admin } from 'better-auth/plugins'
+import { apiKeyWithDefaults } from '@delmaredigital/payload-better-auth'
 
 betterAuth({
   database: payloadAdapter({ payloadClient: payload }),
   plugins: [
     twoFactor(),
-    apiKey(),
+    apiKeyWithDefaults(),  // Use this instead of apiKey() for better admin UI support
     organization(),
     admin(),
   ],
@@ -897,13 +952,15 @@ The API Keys plugin creates an `apiKey` model with a `userId` reference.
 **1. Add to your Better Auth config:**
 
 ```ts
-import { apiKey } from 'better-auth/plugins'
+import { apiKeyWithDefaults } from '@delmaredigital/payload-better-auth'
 
 export const betterAuthOptions: Partial<BetterAuthOptions> = {
   // ... existing config
-  plugins: [apiKey()],
+  plugins: [apiKeyWithDefaults()],  // Enables metadata for scope display in admin UI
 }
 ```
+
+> **Note:** `apiKeyWithDefaults()` wraps Better Auth's `apiKey()` plugin with `enableMetadata: true` so that selected scopes are stored and displayed in the admin UI. You can still use the raw `apiKey()` from `better-auth/plugins` if you don't need this feature.
 
 **2. Add join field to your Users collection:**
 

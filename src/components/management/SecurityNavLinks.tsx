@@ -3,6 +3,12 @@
 export type SecurityNavLinksProps = {
   /** Base path for security views. Default: '/admin/security' */
   basePath?: string
+  /** Show Two-Factor Auth link. Default: true */
+  showTwoFactor?: boolean
+  /** Show API Keys link. Default: true */
+  showApiKeys?: boolean
+  /** Show Passkeys link. Default: true */
+  showPasskeys?: boolean
 }
 
 type NavLink = {
@@ -16,30 +22,45 @@ type NavLink = {
  * Rendered in admin sidebar via afterNavLinks injection.
  * Uses Payload's nav CSS classes for native styling.
  *
- * Note: All security links are shown. Views that are not enabled
- * will display an appropriate message when accessed.
+ * Links are conditionally shown based on which Better Auth plugins are enabled.
  */
 export function SecurityNavLinks({
   basePath = '/admin/security',
+  showTwoFactor = true,
+  showApiKeys = true,
+  showPasskeys = true,
 }: SecurityNavLinksProps = {}) {
-  // Show security management views
-  const links: NavLink[] = [
-    {
+  // Build links based on enabled plugins
+  const links: NavLink[] = []
+
+  if (showTwoFactor) {
+    links.push({
       href: `${basePath}/two-factor`,
       label: 'Two-Factor Auth',
       icon: '📱',
-    },
-    {
+    })
+  }
+
+  if (showApiKeys) {
+    links.push({
       href: `${basePath}/api-keys`,
       label: 'API Keys',
       icon: '🔑',
-    },
-    {
+    })
+  }
+
+  if (showPasskeys) {
+    links.push({
       href: `${basePath}/passkeys`,
       label: 'Passkeys',
       icon: '🔐',
-    },
-  ]
+    })
+  }
+
+  // Don't render anything if no plugins are enabled
+  if (links.length === 0) {
+    return null
+  }
 
   return (
     <div
