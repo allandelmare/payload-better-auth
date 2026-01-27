@@ -4,56 +4,125 @@
   "description": "Better Auth adapter and plugins for Payload CMS",
   "type": "module",
   "license": "MIT",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": "./src/index.ts",
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
     },
     "./adapter": {
-      "import": "./dist/adapter/index.js",
-      "types": "./dist/adapter/index.d.ts"
+      "import": "./src/adapter/index.ts",
+      "types": "./src/adapter/index.ts",
+      "default": "./src/adapter/index.ts"
     },
     "./plugin": {
-      "import": "./dist/plugin/index.js",
-      "types": "./dist/plugin/index.d.ts"
+      "import": "./src/plugin/index.ts",
+      "types": "./src/plugin/index.ts",
+      "default": "./src/plugin/index.ts"
     },
     "./client": {
-      "import": "./dist/exports/client.js",
-      "types": "./dist/exports/client.d.ts"
+      "import": "./src/exports/client.ts",
+      "types": "./src/exports/client.ts",
+      "default": "./src/exports/client.ts"
     },
     "./components": {
-      "import": "./dist/exports/components.js",
-      "types": "./dist/exports/components.d.ts"
+      "import": "./src/exports/components.ts",
+      "types": "./src/exports/components.ts",
+      "default": "./src/exports/components.ts"
     },
     "./components/auth": {
-      "import": "./dist/components/auth/index.js",
-      "types": "./dist/components/auth/index.d.ts"
+      "import": "./src/components/auth/index.ts",
+      "types": "./src/components/auth/index.ts",
+      "default": "./src/components/auth/index.ts"
     },
     "./components/twoFactor": {
-      "import": "./dist/components/twoFactor/index.js",
-      "types": "./dist/components/twoFactor/index.d.ts"
+      "import": "./src/components/twoFactor/index.ts",
+      "types": "./src/components/twoFactor/index.ts",
+      "default": "./src/components/twoFactor/index.ts"
     },
     "./management": {
-      "import": "./dist/exports/management.js",
-      "types": "./dist/exports/management.d.ts"
+      "import": "./src/exports/management.ts",
+      "types": "./src/exports/management.ts",
+      "default": "./src/exports/management.ts"
     },
     "./components/management": {
-      "import": "./dist/components/management/index.js",
-      "types": "./dist/components/management/index.d.ts"
+      "import": "./src/components/management/index.ts",
+      "types": "./src/components/management/index.ts",
+      "default": "./src/components/management/index.ts"
     },
     "./rsc": {
-      "import": "./dist/exports/rsc.js",
-      "types": "./dist/exports/rsc.d.ts"
+      "import": "./src/exports/rsc.ts",
+      "types": "./src/exports/rsc.ts",
+      "default": "./src/exports/rsc.ts"
+    }
+  },
+  "publishConfig": {
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "import": "./dist/index.js",
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./adapter": {
+        "import": "./dist/adapter/index.js",
+        "types": "./dist/adapter/index.d.ts",
+        "default": "./dist/adapter/index.js"
+      },
+      "./plugin": {
+        "import": "./dist/plugin/index.js",
+        "types": "./dist/plugin/index.d.ts",
+        "default": "./dist/plugin/index.js"
+      },
+      "./client": {
+        "import": "./dist/exports/client.js",
+        "types": "./dist/exports/client.d.ts",
+        "default": "./dist/exports/client.js"
+      },
+      "./components": {
+        "import": "./dist/exports/components.js",
+        "types": "./dist/exports/components.d.ts",
+        "default": "./dist/exports/components.js"
+      },
+      "./components/auth": {
+        "import": "./dist/components/auth/index.js",
+        "types": "./dist/components/auth/index.d.ts",
+        "default": "./dist/components/auth/index.js"
+      },
+      "./components/twoFactor": {
+        "import": "./dist/components/twoFactor/index.js",
+        "types": "./dist/components/twoFactor/index.d.ts",
+        "default": "./dist/components/twoFactor/index.js"
+      },
+      "./management": {
+        "import": "./dist/exports/management.js",
+        "types": "./dist/exports/management.d.ts",
+        "default": "./dist/exports/management.js"
+      },
+      "./components/management": {
+        "import": "./dist/components/management/index.js",
+        "types": "./dist/components/management/index.d.ts",
+        "default": "./dist/components/management/index.js"
+      },
+      "./rsc": {
+        "import": "./dist/exports/rsc.js",
+        "types": "./dist/exports/rsc.d.ts",
+        "default": "./dist/exports/rsc.js"
+      }
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "src"
   ],
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "pnpm build:swc && pnpm build:types",
+    "build:swc": "swc ./src -d ./dist --strip-leading-paths",
+    "build:types": "tsc --emitDeclarationOnly",
+    "dev": "swc ./src -d ./dist --strip-leading-paths --watch",
     "dev-publish": "pnpm build && pnpm version prerelease --preid=dev --no-git-tag-version && pnpm publish --registry http://localhost:4873 --no-git-checks",
     "clean": "rm -rf dist",
     "generate:types": "tsx src/scripts/generate-types.ts",
@@ -76,6 +145,8 @@
   "devDependencies": {
     "@payloadcms/next": "^3.73.0",
     "@payloadcms/ui": "^3.73.0",
+    "@swc/cli": "^0.6.0",
+    "@swc/core": "^1.10.18",
     "@types/node": "^25.0.10",
     "@types/react": "^19.2.9",
     "@vitest/coverage-v8": "^2.1.9",

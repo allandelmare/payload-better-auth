@@ -4,7 +4,7 @@ import { useState, type ButtonHTMLAttributes } from 'react'
 import {
   createPayloadAuthClient,
   type PayloadAuthClient,
-} from '../exports/client'
+} from '../exports/client.js'
 
 export type PasskeyRegisterButtonProps = Omit<
   ButtonHTMLAttributes<HTMLButtonElement>,

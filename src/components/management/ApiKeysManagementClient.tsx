@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useRef, type FormEvent } from 'react'
 import {
   createPayloadAuthClient,
   type PayloadAuthClient,
-} from '../../exports/client'
+} from '../../exports/client.js'
 import type { AvailableScope } from '../../types/apiKey.js'
 
 type ApiKey = {

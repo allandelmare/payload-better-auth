@@ -4,7 +4,7 @@ import { useState, useEffect, type FormEvent } from 'react'
 import {
   createPayloadAuthClient,
   type PayloadAuthClient,
-} from '../../exports/client'
+} from '../../exports/client.js'
 
 export type TwoFactorManagementClientProps = {
   /** Optional pre-configured auth client */

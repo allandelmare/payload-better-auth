@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation.js'
 import {
   createPayloadAuthClient,
   type PayloadAuthClient,
-} from '../exports/client'
+} from '../exports/client.js'
 import { hasAnyRole, hasAllRoles, normalizeRoles } from '../utils/access.js'
 
 export type LoginViewProps = {

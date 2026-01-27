@@ -5,7 +5,7 @@
  */
 
 import type { BasePayload } from 'payload'
-import type { PayloadWithAuth } from '../plugin'
+import type { PayloadWithAuth } from '../plugin/index.js'
 
 export type Session = {
   user: {
