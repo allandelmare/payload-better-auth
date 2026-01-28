@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.8] - 2026-01-28
+
+### Fixed
+
+#### Multi-Role Access Control for Generated Collections
+
+The default access control for auto-generated collections (sessions, accounts, verifications, etc.) now correctly handles users with array-based roles. Previously, users with `role: ['admin', 'editor']` were silently denied access because the inline check only matched exact string values.
+
+The fix uses the existing `isAdmin()` utility which properly normalizes roles via `normalizeRoles()` and checks with `hasAnyRole()`.
+
+Thanks to [@Rot4tion](https://github.com/Rot4tion) for contributing this fix in PR #6.
+
+### Changed
+
+#### Build System Migration to SWC
+
+Migrated from pure TypeScript compilation to SWC for faster builds:
+
+- **Build time**: ~85ms for 41 files (vs several seconds with tsc)
+- **TypeScript**: Now only emits declaration files (`.d.ts`)
+- **Source maps**: Enabled for debugging
+
+Build commands remain the same:
+```bash
+pnpm build      # Full build (SWC + types)
+pnpm dev        # Watch mode with SWC
+```
+
+#### Updated Documentation
+
+Added caution note in README clarifying that the `access` option in `betterAuthCollections()` completely replaces the default access object rather than merging with it. Documents the default access settings for reference.
+
 ## [0.3.7] - 2026-01-26
 
 ### Fixed
